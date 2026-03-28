@@ -353,8 +353,14 @@ export class GrokApiService {
     }
 
     buildPayload(modelId, requestBody) {
+        // Save tools before removing from request body (Grok API doesn't accept OpenAI-style tools field)
+        const tools = requestBody?.tools || null;
+        const toolChoice = requestBody?.tool_choice || null;
         if (requestBody && Object.prototype.hasOwnProperty.call(requestBody, 'tools')) {
             delete requestBody.tools;
+        }
+        if (requestBody && Object.prototype.hasOwnProperty.call(requestBody, 'tool_choice')) {
+            delete requestBody.tool_choice;
         }
 
         const rawModelId = typeof modelId === 'string' ? modelId : '';
@@ -367,9 +373,9 @@ export class GrokApiService {
 
         if (requestBody.messages && Array.isArray(requestBody.messages)) {
             let processedMessages = requestBody.messages;
-            if (requestBody.tools?.length > 0) processedMessages = this.converter.formatToolHistory(requestBody.messages);
-            const toolPrompt = this.converter.buildToolPrompt(requestBody.tools, requestBody.tool_choice);
-            if (requestBody.tools && Object.keys(toolOverrides).length === 0) toolOverrides = this.converter.buildToolOverrides(requestBody.tools);
+            if (tools?.length > 0) processedMessages = this.converter.formatToolHistory(requestBody.messages);
+            const toolPrompt = this.converter.buildToolPrompt(tools, toolChoice);
+            if (tools && Object.keys(toolOverrides).length === 0) toolOverrides = this.converter.buildToolOverrides(tools);
 
             const extracted = [];
             const imageAttachments = [];
