@@ -353,15 +353,12 @@ export class GrokApiService {
     }
 
     buildPayload(modelId, requestBody) {
-        // Save tools before removing from request body (Grok API doesn't accept OpenAI-style tools field)
+        // Read tools/tool_choice from requestBody but don't delete them — buildPayload is called
+        // twice in generateContentStream (first for side-effects, then for the actual payload).
+        // Deleting here would cause the second call to lose tool definitions.
+        // The payload object is constructed explicitly below, so these fields won't leak into it.
         const tools = requestBody?.tools || null;
         const toolChoice = requestBody?.tool_choice || null;
-        if (requestBody && Object.prototype.hasOwnProperty.call(requestBody, 'tools')) {
-            delete requestBody.tools;
-        }
-        if (requestBody && Object.prototype.hasOwnProperty.call(requestBody, 'tool_choice')) {
-            delete requestBody.tool_choice;
-        }
 
         const rawModelId = typeof modelId === 'string' ? modelId : '';
         const normalizedModelId = normalizeGrokModelId(rawModelId);
