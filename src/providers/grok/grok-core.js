@@ -353,9 +353,12 @@ export class GrokApiService {
     }
 
     buildPayload(modelId, requestBody) {
-        if (requestBody && Object.prototype.hasOwnProperty.call(requestBody, 'tools')) {
-            delete requestBody.tools;
-        }
+        // Read tools/tool_choice from requestBody but don't delete them — buildPayload is called
+        // twice in generateContentStream (first for side-effects, then for the actual payload).
+        // Deleting here would cause the second call to lose tool definitions.
+        // The payload object is constructed explicitly below, so these fields won't leak into it.
+        const tools = requestBody?.tools || null;
+        const toolChoice = requestBody?.tool_choice || null;
 
         const rawModelId = typeof modelId === 'string' ? modelId : '';
         const normalizedModelId = normalizeGrokModelId(rawModelId);
@@ -367,9 +370,9 @@ export class GrokApiService {
 
         if (requestBody.messages && Array.isArray(requestBody.messages)) {
             let processedMessages = requestBody.messages;
-            if (requestBody.tools?.length > 0) processedMessages = this.converter.formatToolHistory(requestBody.messages);
-            const toolPrompt = this.converter.buildToolPrompt(requestBody.tools, requestBody.tool_choice);
-            if (requestBody.tools && Object.keys(toolOverrides).length === 0) toolOverrides = this.converter.buildToolOverrides(requestBody.tools);
+            if (tools?.length > 0) processedMessages = this.converter.formatToolHistory(requestBody.messages);
+            const toolPrompt = this.converter.buildToolPrompt(tools, toolChoice);
+            if (tools && Object.keys(toolOverrides).length === 0) toolOverrides = this.converter.buildToolOverrides(tools);
 
             const extracted = [];
             const imageAttachments = [];
