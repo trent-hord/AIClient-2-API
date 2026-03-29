@@ -117,8 +117,12 @@ export class GrokConverter extends BaseConverter {
      */
     buildToolPrompt(tools, toolChoice = "auto", parallelToolCalls = true) {
         if (!tools || tools.length === 0 || toolChoice === "none") {
+            logger.debug(`[Grok Tool] buildToolPrompt skipped (tools=${tools?.length || 0}, toolChoice=${toolChoice})`);
             return "";
         }
+
+        const toolNames = tools.filter(t => t.type === 'function').map(t => t.function?.name).filter(Boolean);
+        logger.info(`[Grok Tool] Building tool prompt for ${toolNames.length} tools: [${toolNames.join(', ')}] (toolChoice=${toolChoice})`);
 
         const lines = [
             "# Available Tools",
@@ -166,6 +170,7 @@ export class GrokConverter extends BaseConverter {
      * 格式化工具历史 (format_tool_history)
      */
     formatToolHistory(messages) {
+        logger.info(`[Grok Tool] Formatting tool history for ${messages.length} messages`);
         const result = [];
         for (const msg of messages) {
             const role = msg.role;
@@ -177,6 +182,7 @@ export class GrokConverter extends BaseConverter {
                 if (content) parts.push(typeof content === 'string' ? content : JSON.stringify(content));
                 for (const tc of toolCalls) {
                     const func = tc.function || {};
+                    logger.info(`[Grok Tool] History: assistant called tool "${func.name}" (id=${tc.id})`);
                     parts.push(`<tool_call>{"name":"${func.name}","arguments":${func.arguments || "{}"}}</tool_call>`);
                 }
                 result.push({ role: "assistant", content: parts.join("\n") });
@@ -184,6 +190,7 @@ export class GrokConverter extends BaseConverter {
                 const toolName = msg.name || "unknown";
                 const callId = msg.tool_call_id || "";
                 const contentStr = typeof content === 'string' ? content : JSON.stringify(content);
+                logger.info(`[Grok Tool] History: tool result for "${toolName}" (call_id=${callId}), length=${contentStr.length}`);
                 result.push({
                     role: "user",
                     content: `tool (${toolName}, ${callId}): ${contentStr}`
@@ -206,6 +213,8 @@ export class GrokConverter extends BaseConverter {
         
         if (matches.length === 0) return { text: content, toolCalls: null };
 
+        logger.info(`[Grok Tool] parseToolCalls: found ${matches.length} <tool_call> block(s) in response`);
+
         const toolCalls = [];
         for (const match of matches) {
             try {
@@ -214,9 +223,11 @@ export class GrokConverter extends BaseConverter {
                     let args = parsed.arguments || {};
                     const argumentsStr = typeof args === 'string' ? args : JSON.stringify(args);
 
+                    const callId = `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
+                    logger.info(`[Grok Tool] Parsed tool call: "${parsed.name}" (id=${callId}), args=${argumentsStr.substring(0, 200)}`);
                     toolCalls.push({
                         index: toolCalls.length,
-                        id: `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`,
+                        id: callId,
                         type: "function",
                         function: {
                             name: parsed.name,
@@ -225,11 +236,14 @@ export class GrokConverter extends BaseConverter {
                     });
                 }
             } catch (e) {
-                // 忽略解析失败的块
+                logger.warn(`[Grok Tool] Failed to parse tool call JSON: ${e.message}, raw=${match[1]?.substring(0, 100)}`);
             }
         }
 
-        if (toolCalls.length === 0) return { text: content, toolCalls: null };
+        if (toolCalls.length === 0) {
+            logger.warn(`[Grok Tool] All ${matches.length} tool call block(s) failed to parse`);
+            return { text: content, toolCalls: null };
+        }
 
         // 提取文本内容
         let text = content;
@@ -238,6 +252,7 @@ export class GrokConverter extends BaseConverter {
         }
         text = text.trim() || null;
 
+        logger.info(`[Grok Tool] parseToolCalls complete: ${toolCalls.length} tool call(s) extracted, remaining text=${text ? text.length + ' chars' : 'none'}`);
         return { text, toolCalls };
     }
 
@@ -593,9 +608,11 @@ export class GrokConverter extends BaseConverter {
             }
 
             // 处理 buffer 中的工具调用
+            logger.debug(`[Grok Tool] Stream done, content_buffer length=${state.content_buffer.length}, checking for tool calls`);
             const { text, toolCalls } = this.parseToolCalls(state.content_buffer);
-            
+
             if (toolCalls) {
+                logger.info(`[Grok Tool] Emitting ${toolCalls.length} tool call(s) in OpenAI stream format: [${toolCalls.map(tc => tc.function.name).join(', ')}]`);
                 // Emit any remaining text content in its own chunk first
                 const remainingText = (finalContent + (text || "")).trim();
                 if (remainingText) {
@@ -790,10 +807,12 @@ export class GrokConverter extends BaseConverter {
                     if (outputToken.includes('<tool_call>')) {
                         state.in_tool_call = true;
                         state.has_tool_call = true;
+                        logger.info(`[Grok Tool] Stream: detected <tool_call> start, suppressing content from stream output`);
                         // 移除标签之后的部分（如果有）
                         outputToken = outputToken.split('<tool_call>')[0];
                     } else if (state.in_tool_call && outputToken.includes('</tool_call>')) {
                         state.in_tool_call = false;
+                        logger.info(`[Grok Tool] Stream: detected </tool_call> end, resuming content output`);
                         // 只保留标签之后的部分
                         outputToken = outputToken.split('</tool_call>')[1] || "";
                     } else if (state.in_tool_call) {

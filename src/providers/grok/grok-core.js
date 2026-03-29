@@ -370,8 +370,14 @@ export class GrokApiService {
 
         if (requestBody.messages && Array.isArray(requestBody.messages)) {
             let processedMessages = requestBody.messages;
-            if (tools?.length > 0) processedMessages = this.converter.formatToolHistory(requestBody.messages);
+            if (tools?.length > 0) {
+                logger.info(`[Grok Tool] Request has ${tools.length} tool(s), formatting message history`);
+                processedMessages = this.converter.formatToolHistory(requestBody.messages);
+            }
             const toolPrompt = this.converter.buildToolPrompt(tools, toolChoice);
+            if (toolPrompt) {
+                logger.info(`[Grok Tool] Tool prompt injected into message (${toolPrompt.length} chars)`);
+            }
             // NOTE: Do not use buildToolOverrides for user-defined tools — Grok's toolOverrides
             // field only accepts Grok-internal tool names (imageGen, videoGen, web_search, etc.).
             // Custom tool definitions are communicated to the model via the prompt text (buildToolPrompt).
