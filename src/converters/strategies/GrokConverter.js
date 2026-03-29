@@ -127,27 +127,32 @@ export class GrokConverter extends BaseConverter {
         const lines = [
             "# CRITICAL: Tool Use Protocol",
             "",
-            "You CANNOT perform actions directly (read files, write files, run commands, etc.). You have NO direct access to the filesystem or system.",
-            "To perform ANY action, you MUST use the tools provided below by outputting <tool_call> blocks.",
+            "You CANNOT perform actions directly. You have NO direct access to the filesystem, system, or any external resources.",
+            "To perform ANY action, you MUST output a tool call using the EXACT format shown below.",
+            "NEVER claim you performed an action without outputting a tool call block.",
             "",
-            "## Required Format",
+            "## How to call a tool",
             "",
-            "To call a tool, you MUST output exactly this format:",
+            "Output a fenced code block with the language tag `tool_call`:",
             "",
-            "<tool_call>",
+            "```tool_call",
             '{"name": "function_name", "arguments": {"param": "value"}}',
-            "</tool_call>",
+            "```",
             "",
-            "NEVER pretend you performed an action. NEVER say \"Done\" or \"I've created\" without a <tool_call> block. If the user asks you to do something, you MUST call the appropriate tool.",
+            "Example - to write a file:",
+            "",
+            "```tool_call",
+            '{"name": "write", "arguments": {"path": "test.txt", "content": "hello world"}}',
+            "```",
             "",
         ];
 
         if (parallelToolCalls) {
-            lines.push("You may make multiple tool calls in a single response by using multiple <tool_call> blocks.");
+            lines.push("You may make multiple tool calls by using multiple ```tool_call blocks.");
             lines.push("");
         }
 
-        lines.push("## Tool Definitions");
+        lines.push("## Available Tools");
         lines.push("");
         for (const tool of tools) {
             if (tool.type !== "function") continue;
@@ -163,7 +168,7 @@ export class GrokConverter extends BaseConverter {
         } else if (toolChoice && typeof toolChoice === 'object' && toolChoice.function?.name) {
             lines.push(`IMPORTANT: You MUST call the tool "${toolChoice.function.name}" in your response.`);
         } else {
-            lines.push("When the user asks you to perform an action (create, read, edit, run, search, etc.), you MUST use a <tool_call> block. Only respond with text alone if the user is asking a question that requires no action.");
+            lines.push("When the user asks you to perform an action (create, read, edit, run, search, etc.), you MUST output a ```tool_call block. Only respond with plain text if no action is needed.");
         }
 
         return lines.join("\n");
@@ -186,7 +191,7 @@ export class GrokConverter extends BaseConverter {
                 for (const tc of toolCalls) {
                     const func = tc.function || {};
                     logger.info(`[Grok Tool] History: assistant called tool "${func.name}" (id=${tc.id})`);
-                    parts.push(`<tool_call>{"name":"${func.name}","arguments":${func.arguments || "{}"}}</tool_call>`);
+                    parts.push("```tool_call\n" + `{"name":"${func.name}","arguments":${func.arguments || "{}"}}` + "\n```");
                 }
                 result.push({ role: "assistant", content: parts.join("\n") });
             } else if (role === "tool") {
@@ -211,15 +216,23 @@ export class GrokConverter extends BaseConverter {
     parseToolCalls(content) {
         if (!content) return { text: content, toolCalls: null };
 
-        const toolCallRegex = /<tool_call>\s*(.*?)\s*<\/tool_call>/gs;
-        const matches = [...content.matchAll(toolCallRegex)];
-        
-        if (matches.length === 0) return { text: content, toolCalls: null };
+        // Match multiple formats:
+        // 1. ```tool_call\n{...}\n``` (fenced code block — preferred)
+        // 2. <tool_call>{...}</tool_call> (XML tags — legacy)
+        const fencedRegex = /```tool_call\s*\n([\s\S]*?)\n\s*```/g;
+        const xmlRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
 
-        logger.info(`[Grok Tool] parseToolCalls: found ${matches.length} <tool_call> block(s) in response`);
+        const allMatches = [
+            ...content.matchAll(fencedRegex),
+            ...content.matchAll(xmlRegex)
+        ];
+
+        if (allMatches.length === 0) return { text: content, toolCalls: null };
+
+        logger.info(`[Grok Tool] parseToolCalls: found ${allMatches.length} tool call block(s) in response`);
 
         const toolCalls = [];
-        for (const match of matches) {
+        for (const match of allMatches) {
             try {
                 const parsed = JSON.parse(match[1].trim());
                 if (parsed.name) {
@@ -244,13 +257,13 @@ export class GrokConverter extends BaseConverter {
         }
 
         if (toolCalls.length === 0) {
-            logger.warn(`[Grok Tool] All ${matches.length} tool call block(s) failed to parse`);
+            logger.warn(`[Grok Tool] All ${allMatches.length} tool call block(s) failed to parse`);
             return { text: content, toolCalls: null };
         }
 
-        // 提取文本内容
+        // Remove matched blocks from text content
         let text = content;
-        for (const match of matches) {
+        for (const match of allMatches) {
             text = text.replace(match[0], "");
         }
         text = text.trim() || null;
@@ -815,20 +828,30 @@ export class GrokConverter extends BaseConverter {
                     // 工具调用抑制逻辑：不向客户端输出 <tool_call> 块及其内容
                     let outputToken = outputFromBuffer;
                     
-                    // 简单的状态切换检测
-                    if (outputToken.includes('<tool_call>')) {
+                    // Tool call suppression: hide tool_call blocks from streamed content
+                    // Detect start of tool call block (fenced or XML)
+                    if (outputToken.includes('```tool_call') || outputToken.includes('<tool_call>')) {
                         state.in_tool_call = true;
                         state.has_tool_call = true;
-                        logger.info(`[Grok Tool] Stream: detected <tool_call> start, suppressing content from stream output`);
-                        // 移除标签之后的部分（如果有）
-                        outputToken = outputToken.split('<tool_call>')[0];
-                    } else if (state.in_tool_call && outputToken.includes('</tool_call>')) {
+                        logger.info(`[Grok Tool] Stream: detected tool_call start, suppressing content from stream output`);
+                        // Keep text before the block
+                        const splitToken = outputToken.includes('```tool_call')
+                            ? outputToken.split('```tool_call')[0]
+                            : outputToken.split('<tool_call>')[0];
+                        outputToken = splitToken;
+                    } else if (state.in_tool_call && (outputToken.includes('```') || outputToken.includes('</tool_call>'))) {
                         state.in_tool_call = false;
-                        logger.info(`[Grok Tool] Stream: detected </tool_call> end, resuming content output`);
-                        // 只保留标签之后的部分
-                        outputToken = outputToken.split('</tool_call>')[1] || "";
+                        logger.info(`[Grok Tool] Stream: detected tool_call end, resuming content output`);
+                        // Keep text after the closing block
+                        if (outputToken.includes('</tool_call>')) {
+                            outputToken = outputToken.split('</tool_call>')[1] || "";
+                        } else {
+                            // For fenced blocks, the closing ``` might have text after it
+                            const parts = outputToken.split('```');
+                            outputToken = parts.length > 1 ? parts.slice(1).join('```') : "";
+                        }
                     } else if (state.in_tool_call) {
-                        // 处于块内，完全抑制
+                        // Inside a tool call block — suppress entirely
                         outputToken = "";
                     }
 
