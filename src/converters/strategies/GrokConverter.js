@@ -608,7 +608,7 @@ export class GrokConverter extends BaseConverter {
             }
 
             // 处理 buffer 中的工具调用
-            logger.debug(`[Grok Tool] Stream done, content_buffer length=${state.content_buffer.length}, checking for tool calls`);
+            logger.info(`[Grok Tool] Stream done, content_buffer length=${state.content_buffer.length}, has <tool_call>=${state.content_buffer.includes('<tool_call>')}, checking for tool calls`);
             const { text, toolCalls } = this.parseToolCalls(state.content_buffer);
 
             if (toolCalls) {
@@ -769,6 +769,10 @@ export class GrokConverter extends BaseConverter {
             const isThinking = !!resp.isThinking;
             const inThink = isThinking || state.image_think_active || state.video_think_active;
 
+            // Always accumulate into content_buffer for tool call detection,
+            // even for thinking tokens — models may emit <tool_call> during thinking
+            state.content_buffer += filtered;
+
             if (inThink) {
                 deltaReasoning += filtered;
             } else {
@@ -822,9 +826,6 @@ export class GrokConverter extends BaseConverter {
 
                     deltaContent += outputToken;
                 }
-                
-                // 将内容加入 buffer 用于最终解析工具调用
-                state.content_buffer += filtered;
             }
             state.last_is_thinking = isThinking;
         }
