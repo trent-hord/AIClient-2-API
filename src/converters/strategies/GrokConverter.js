@@ -150,7 +150,7 @@ export class GrokConverter extends BaseConverter {
 
         if (toolChoice === "required") {
             lines.push("IMPORTANT: You MUST call at least one tool in your response. Do not respond with only text.");
-        } else if (typeof toolChoice === 'object' && toolChoice.function?.name) {
+        } else if (toolChoice && typeof toolChoice === 'object' && toolChoice.function?.name) {
             lines.push(`IMPORTANT: You MUST call the tool "${toolChoice.function.name}" in your response.`);
         } else {
             lines.push("Decide whether to call a tool based on the user's request. If you don't need a tool, respond normally with text only.");

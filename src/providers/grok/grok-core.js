@@ -358,7 +358,7 @@ export class GrokApiService {
         // Deleting here would cause the second call to lose tool definitions.
         // The payload object is constructed explicitly below, so these fields won't leak into it.
         const tools = requestBody?.tools || null;
-        const toolChoice = requestBody?.tool_choice || null;
+        const toolChoice = requestBody?.tool_choice || undefined;
 
         const rawModelId = typeof modelId === 'string' ? modelId : '';
         const normalizedModelId = normalizeGrokModelId(rawModelId);
