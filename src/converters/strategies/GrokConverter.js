@@ -608,7 +608,12 @@ export class GrokConverter extends BaseConverter {
             }
 
             // 处理 buffer 中的工具调用
-            logger.info(`[Grok Tool] Stream done, content_buffer length=${state.content_buffer.length}, has <tool_call>=${state.content_buffer.includes('<tool_call>')}, checking for tool calls`);
+            const bufHasToolCall = state.content_buffer.includes('<tool_call>');
+            logger.info(`[Grok Tool] Stream done, content_buffer length=${state.content_buffer.length}, has <tool_call>=${bufHasToolCall}, checking for tool calls`);
+            if (!bufHasToolCall && state.content_buffer.length > 0) {
+                // Log first 500 chars so we can see what format the model used instead
+                logger.info(`[Grok Tool] content_buffer preview: ${state.content_buffer.substring(0, 500)}`);
+            }
             const { text, toolCalls } = this.parseToolCalls(state.content_buffer);
 
             if (toolCalls) {
