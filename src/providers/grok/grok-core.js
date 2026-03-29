@@ -411,7 +411,11 @@ export class GrokApiService {
             for (let i = extracted.length - 1; i >= 0; i--) { if (extracted[i].role === 'user') { lastUserIdx = i; break; } }
             const texts = extracted.map((item, i) => i === lastUserIdx ? item.text : `${item.role}: ${item.text}`);
             message = texts.join("\n\n");
-            if (toolPrompt) message = `${toolPrompt}\n\n${message}`;
+            if (toolPrompt) {
+                message = `${toolPrompt}\n\n${message}`;
+                // Add a reminder near the end so it's not buried under conversation history
+                message += "\n\n[Reminder: To perform any action, you MUST output <tool_call> blocks. Do NOT pretend to perform actions directly.]";
+            }
             if (!message.trim() && (imageAttachments.length || localFileAttachments.length)) message = "Refer to the following content:";
             requestBody._extractedImages = imageAttachments;
             requestBody._extractedFiles = localFileAttachments;

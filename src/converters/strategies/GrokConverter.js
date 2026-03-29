@@ -125,14 +125,20 @@ export class GrokConverter extends BaseConverter {
         logger.info(`[Grok Tool] Building tool prompt for ${toolNames.length} tools: [${toolNames.join(', ')}] (toolChoice=${toolChoice})`);
 
         const lines = [
-            "# Available Tools",
+            "# CRITICAL: Tool Use Protocol",
             "",
-            "You have access to the following tools. To call a tool, output a <tool_call> block with a JSON object containing \"name\" and \"arguments\".",
+            "You CANNOT perform actions directly (read files, write files, run commands, etc.). You have NO direct access to the filesystem or system.",
+            "To perform ANY action, you MUST use the tools provided below by outputting <tool_call> blocks.",
             "",
-            "Format:",
+            "## Required Format",
+            "",
+            "To call a tool, you MUST output exactly this format:",
+            "",
             "<tool_call>",
             '{"name": "function_name", "arguments": {"param": "value"}}',
             "</tool_call>",
+            "",
+            "NEVER pretend you performed an action. NEVER say \"Done\" or \"I've created\" without a <tool_call> block. If the user asks you to do something, you MUST call the appropriate tool.",
             "",
         ];
 
@@ -157,11 +163,8 @@ export class GrokConverter extends BaseConverter {
         } else if (toolChoice && typeof toolChoice === 'object' && toolChoice.function?.name) {
             lines.push(`IMPORTANT: You MUST call the tool "${toolChoice.function.name}" in your response.`);
         } else {
-            lines.push("Decide whether to call a tool based on the user's request. If you don't need a tool, respond normally with text only.");
+            lines.push("When the user asks you to perform an action (create, read, edit, run, search, etc.), you MUST use a <tool_call> block. Only respond with text alone if the user is asking a question that requires no action.");
         }
-
-        lines.push("");
-        lines.push("When you call a tool, you may include text before or after the <tool_call> blocks, but the tool call blocks must be valid JSON.");
 
         return lines.join("\n");
     }
