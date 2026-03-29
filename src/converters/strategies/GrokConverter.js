@@ -213,8 +213,9 @@ export class GrokConverter extends BaseConverter {
                 if (parsed.name) {
                     let args = parsed.arguments || {};
                     const argumentsStr = typeof args === 'string' ? args : JSON.stringify(args);
-                    
+
                     toolCalls.push({
+                        index: toolCalls.length,
                         id: `call_${uuidv4().replace(/-/g, '').slice(0, 24)}`,
                         type: "function",
                         function: {
@@ -595,6 +596,23 @@ export class GrokConverter extends BaseConverter {
             const { text, toolCalls } = this.parseToolCalls(state.content_buffer);
             
             if (toolCalls) {
+                // Emit any remaining text content in its own chunk first
+                const remainingText = (finalContent + (text || "")).trim();
+                if (remainingText) {
+                    chunks.push({
+                        id: responseId,
+                        object: "chat.completion.chunk",
+                        created: Math.floor(Date.now() / 1000),
+                        model: model,
+                        system_fingerprint: state.fingerprint,
+                        choices: [{
+                            index: 0,
+                            delta: { content: remainingText },
+                            finish_reason: null
+                        }]
+                    });
+                }
+                // Emit tool calls in a separate chunk (OpenAI format)
                 chunks.push({
                     id: responseId,
                     object: "chat.completion.chunk",
@@ -603,10 +621,20 @@ export class GrokConverter extends BaseConverter {
                     system_fingerprint: state.fingerprint,
                     choices: [{
                         index: 0,
-                        delta: { 
-                            content: (finalContent + (text || "")).trim() || null,
-                            tool_calls: toolCalls 
-                        },
+                        delta: { tool_calls: toolCalls },
+                        finish_reason: null
+                    }]
+                });
+                // Emit finish chunk
+                chunks.push({
+                    id: responseId,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: model,
+                    system_fingerprint: state.fingerprint,
+                    choices: [{
+                        index: 0,
+                        delta: {},
                         finish_reason: "tool_calls"
                     }]
                 });
